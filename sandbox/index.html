@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rebound Sandbox</title>
+<style>
+  body { margin: 0; padding: 16px 24px; background: #15171c; color: #e6e6e6; font: 14px system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .toggle { display: flex; border: 1px solid #3a3f4b; border-radius: 6px; overflow: hidden; }
+  .toggle button { border: 0; border-radius: 0; padding: 5px 14px; background: #1d2027; color: #8b909c; }
+  .toggle button.on { background: #313641; color: #e6e6e6; font-weight: 600; }
+  select, button, input { background: #252932; color: inherit; border: 1px solid #3a3f4b; border-radius: 4px; padding: 4px 8px; font: inherit; }
+  button { cursor: pointer; } button:hover { background: #313641; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .muted { color: #8b909c; }
+  .info { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; flex: 1; }
+  .chip { background: #1d2027; border: 1px solid #2c3039; border-radius: 6px; padding: 4px 10px; display: flex; flex-direction: column; justify-content: center; }
+  .chip small { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #8b909c; }
+  .chip b { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .chip.desc { flex: 1; min-width: 220px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid #fff6; }
+  .badge { font-size: 12px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .panel { background: #1d2027; border-radius: 6px; aspect-ratio: 94 / 56; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  canvas { width: 100%; height: 100%; object-fit: contain; }
+  video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }  /* crops the extra top/bottom of taller clips */
+  .timeline { position: relative; flex: 1; min-width: 300px; }
+  .timeline input { width: 100%; padding: 0; }
+  .mark { position: absolute; top: -14px; font-size: 10px; transform: translateX(-50%); }
+  .preds { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .card { background: #1d2027; border-radius: 6px; padding: 12px 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .bar { position: relative; height: 8px; background: #313641; border-radius: 4px; margin: 6px 0 6px; }
+  .bar > i { position: absolute; top: -3px; width: 2px; height: 14px; background: #e6e6e6; }  /* threshold */
+  .bar > div { height: 100%; background: #e8833a; border-radius: 4px; }
+  /* SHAP chart: feature | diverging bar around a zero line | contribution */
+  .shap { display: grid; grid-template-columns: minmax(150px, 38%) 1fr 56px; gap: 10px 12px; align-items: center; }
+  .shap .feat { line-height: 1.25; }
+  .shap .feat span { display: block; font-size: 12px; color: #8b909c; font-variant-numeric: tabular-nums; }
+  .shap .track { position: relative; height: 16px; }
+  .shap .track::before { content: ""; position: absolute; left: 50%; top: -5px; bottom: -5px; border-left: 1px solid #4a505c; }
+  .shap .track > div { position: absolute; top: 0; height: 100%; }
+  .shap .num { text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .shap .axis { display: flex; justify-content: space-between; font-size: 11px; color: #8b909c; }
+  .summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 14px; }
+  .shapPanel { background: #1d2027; border-radius: 6px; padding: 12px 16px; overflow: auto; display: none; }
+  .shapPanel section + section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #2c3039; }
+  .shapPanel h2 { font-size: 15px; margin: 0 0 4px; }
+  /* SHAP view: court on the left, explanations on the right; video and prediction cards hidden */
+  body.shapView #videoPanel, body.shapView .preds { display: none; }
+  body.shapView .shapPanel { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Offensive Rebound Sandbox</h1>
+  <div class="toggle"><button id="viewDefault" class="on">Default</button><button id="viewShap">SHAP</button></div>
+</header>
+
+<div class="row">
+  <label class="chip"><small>Event</small><select id="playSel"></select></label>
+  <div id="info" class="info"></div>
+</div>
+
+<div class="panels">
+  <div class="panel" id="videoPanel"><span class="muted">No video for this play</span></div>
+  <div class="panel"><canvas id="court" width="1034" height="616"></canvas></div>
+  <div class="shapPanel"><section id="shapShot"></section><section id="shapRim"></section></div>
+</div>
+
+<div class="row" style="margin-top: 20px;">
+  <button id="playBtn">Play</button>
+  <button id="stepBack">&lt;</button><button id="stepFwd">&gt;</button>
+  <button id="toShot">Shot</button><button id="toRim">Rim</button>
+  <div class="timeline"><input type="range" id="slider" min="0" value="0"><div id="marks"></div></div>
+  <span id="shotClock" class="muted" style="font-variant-numeric: tabular-nums; min-width: 110px;"></span>
+</div>
+
+<div class="preds">
+  <div class="card" id="predShot"></div>
+  <div class="card" id="predRim"></div>
+</div>
+
+<script>
+const FPS = 25, S = 11;  // S = canvas pixels per foot
+const TEAM_COLORS = ["#3b82f6", "#ef4444"];
+const $ = id => document.getElementById(id);
+const ctx = $("court").getContext("2d");
+
+let play = null, video = null, playing = false, idx = 0, last = null;
+
+// ---------- data ----------
+fetch("/api/plays").then(r => r.json()).then(plays => {
+  $("playSel").innerHTML = plays.map((p, i) =>
+    `<option value="${i}">${p.event_num}</option>`).join("");
+  $("playSel").onchange = e => loadPlay(e.target.value);
+  loadPlay(0);
+});
+
+function loadPlay(i) {
+  fetch(`/api/play/${i}`).then(r => r.json()).then(p => {
+    play = p; playing = false;
+    play.teams = [...new Set(p.frames[0].players.map(q => q[0]))];
+    // Team label = most common abbreviation among its players; colors come from plays.json "team_colors"
+    // (keyed by that label or by team id), falling back to the defaults
+    play.labels = play.teams.map(team => {
+      const abbrs = p.frames[0].players.filter(q => q[0] === team).map(q => p.players[q[1]]?.team).filter(Boolean);
+      return abbrs.sort((a, b) => abbrs.filter(x => x === b).length - abbrs.filter(x => x === a).length)[0] || String(team);
+    });
+    play.colors = play.teams.map((team, k) => p.team_colors?.[play.labels[k]] ?? p.team_colors?.[team] ?? TEAM_COLORS[k]);
+    const shooter = p.players[p.shooter_id];
+    renderInfo(p, shooter);
+    $("slider").max = p.frames.length - 1;
+
+    const pct = k => `${100 * k / (p.frames.length - 1)}%`;
+    const m = p.moments;
+    $("marks").innerHTML = `<span class="mark" style="left:${pct(m.shot.idx)}">SHOT</span>` +
+      (m.rim ? `<span class="mark" style="left:${pct(m.rim.idx)}">RIM</span>` : "");
+    $("toRim").disabled = !m.rim;
+
+    $("videoPanel").innerHTML = p.video ? `<video id="vid" src="/videos/${p.video}" muted></video>`
+                                        : `<span class="muted">No video for this play</span>`;
+    video = p.video ? $("vid") : null;
+    if (video) video.onended = () => setPlaying(false);
+    if (video) video.onloadedmetadata = () => seek(0);
+    if (video) video.onerror = () => $("videoPanel").innerHTML = `<span class="muted">Video not found: sandbox/videos/${p.video}</span>`;
+
+    renderPrediction($("predShot"), "At shot", m.shot);
+    renderPrediction($("predRim"), "At rim arrival", m.rim);
+    renderShap($("shapShot"), "At shot", m.shot);
+    renderShap($("shapRim"), "At rim arrival", m.rim);
+    seek(0);
+  });
+}
+
+function renderInfo(p, shooter) {
+  const chip = (label, value, cls = "") => `<div class="chip ${cls}"><small>${label}</small><b>${value}</b></div>`;
+  const dot = color => `<span class="dot" style="background:${color}"></span>`;
+  const matchup = p.labels.map((l, k) => `${dot(p.colors[k])}${l}`).join(`<span class="muted">vs</span>`);
+  const shooterTeam = shooter && p.labels.indexOf(shooter.team);
+  const off = p.rebound_type === "OFFENSIVE";
+  $("info").innerHTML =
+    chip("Game", p.game_id) +
+    chip("Matchup", matchup) +
+    chip("Quarter", `Q${p.period}`) +
+    (shooter ? chip("Shooter", `${shooterTeam >= 0 ? dot(p.colors[shooterTeam]) : ""}${shooter.name}` +
+                               (shooter.jersey ? ` <span class="muted">#${shooter.jersey}</span>` : "")) : "") +
+    chip("Actual rebound", `<span class="badge" style="background:${off ? "#e8833a33" : "#3b82f633"};
+      color:${off ? "#f0a060" : "#7aa8f8"}">${p.rebound_type}</span>`) +
+    chip("Description", p.description, "desc") +
+    (p.video ? "" : chip("Video", `<span class="muted">none</span>`));
+}
+
+// ---------- sync ----------
+// The clip is anchored by the video frame numbers of the shot (and optionally rim arrival) noted in plays.json.
+// Only the part of the clip covered by the tracking frames is shown. Without a video, tracking plays on its own.
+let pos = 0;  // current tracking frame position (fractional)
+const clamp = i => Math.max(0, Math.min(play.frames.length - 1, i));
+const hasVideo = () => video && video.readyState && play.shot_frame != null;
+
+// Video frames per tracking frame: fitted from both anchors if given, else from the frame rates
+const slope = () => play.rim_frame != null && play.moments.rim
+  ? (play.rim_frame - play.shot_frame) / (play.moments.rim.idx - play.moments.shot.idx)
+  : (play.video_fps || 30) / FPS;
+const videoTime = i => Math.max(0, (play.shot_frame + (i - play.moments.shot.idx) * slope()) / (play.video_fps || 30));
+const trackingPos = vt => play.moments.shot.idx + (vt * (play.video_fps || 30) - play.shot_frame) / slope();
+
+function seek(i) {
+  pos = clamp(i);
+  if (hasVideo()) video.currentTime = videoTime(pos);
+}
+
+function tick(now) {
+  if (play) {
+    if (hasVideo()) {
+      pos = trackingPos(video.currentTime);
+      if (playing && pos >= play.frames.length - 1) setPlaying(false);
+    } else if (playing && last) {
+      pos = clamp(pos + (now - last) / 1000 * FPS);
+      if (pos === play.frames.length - 1) setPlaying(false);
+    }
+    idx = clamp(Math.round(pos));
+    $("slider").value = idx;
+    draw(play.frames[idx]);
+  }
+  last = now;
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function setPlaying(on) {
+  playing = on;
+  $("playBtn").textContent = on ? "Pause" : "Play";
+  if (hasVideo()) on ? video.play() : video.pause();
+}
+
+function setView(shap) {
+  document.body.classList.toggle("shapView", shap);
+  $("viewDefault").classList.toggle("on", !shap);
+  $("viewShap").classList.toggle("on", shap);
+}
+$("viewDefault").onclick = () => setView(false);
+$("viewShap").onclick = () => setView(true);
+
+$("playBtn").onclick = () => setPlaying(!playing);
+$("slider").oninput = e => { setPlaying(false); seek(+e.target.value); };
+$("stepBack").onclick = () => { setPlaying(false); seek(idx - 1); };
+$("stepFwd").onclick = () => { setPlaying(false); seek(idx + 1); };
+$("toShot").onclick = () => { setPlaying(false); seek(play.moments.shot.idx); };
+$("toRim").onclick = () => { setPlaying(false); seek(play.moments.rim.idx); };
+
+// ---------- court ----------
+function drawCourt() {
+  ctx.fillStyle = "#c9a36b"; ctx.fillRect(0, 0, 94 * S, 50 * S);
+  ctx.strokeStyle = "#222"; ctx.lineWidth = 2;
+  const line = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1 * S, y1 * S); ctx.lineTo(x2 * S, y2 * S); ctx.stroke(); };
+  const arc = (x, y, r, a0 = 0, a1 = 2 * Math.PI) => { ctx.beginPath(); ctx.arc(x * S, y * S, r * S, a0, a1); ctx.stroke(); };
+  ctx.strokeRect(0, 0, 94 * S, 50 * S);
+  line(47, 0, 47, 50); arc(47, 25, 6);
+  const b = Math.asin(22 / 23.75), cx = 23.75 * Math.cos(b);  // arc meets the corner-three lines (y = 3 / 47)
+  for (const [hx, dir] of [[5.25, 1], [88.75, -1]]) {
+    const base = dir > 0 ? 0 : 94;
+    ctx.strokeRect(Math.min(base, base + dir * 19) * S, 17 * S, 19 * S, 16 * S);
+    line(base, 3, hx + dir * cx, 3); line(base, 47, hx + dir * cx, 47);
+    dir > 0 ? arc(hx, 25, 23.75, -b, b) : arc(hx, 25, 23.75, Math.PI - b, Math.PI + b);
+    ctx.strokeStyle = "#e8833a"; arc(hx, 25, 0.75); ctx.strokeStyle = "#222";
+  }
+}
+
+// Black or white jersey number, whichever reads better on the team color
+function textOn(color) {
+  ctx.fillStyle = color;
+  const [r, g, b] = ctx.fillStyle.match(/\w\w/g).map(h => parseInt(h, 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#000" : "#fff";
+}
+
+function draw(f) {
+  ctx.clearRect(0, 0, 1034, 616);
+  drawCourt();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  for (const [team, pid, x, y] of f.players) {
+    ctx.beginPath(); ctx.arc(x * S, y * S, 13, 0, 2 * Math.PI);
+    const color = play.colors[play.teams.indexOf(team)];
+    ctx.fillStyle = color; ctx.fill();
+    ctx.lineWidth = pid === play.shooter_id ? 4 : 1.5;
+    ctx.strokeStyle = pid === play.shooter_id ? "#facc15" : "#fff"; ctx.stroke();
+    ctx.fillStyle = textOn(color); ctx.font = "bold 13px system-ui";
+    ctx.fillText(play.players[pid]?.jersey ?? "", x * S, y * S);
+  }
+
+  if (f.ball) {
+    const [bx, by, bz] = f.ball;
+    ctx.beginPath(); ctx.arc(bx * S, by * S, 5 + bz * 0.6, 0, 2 * Math.PI);
+    ctx.fillStyle = "#f97316"; ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // Legend + moment flag along the bottom strip
+  ctx.font = "15px system-ui"; ctx.textAlign = "left";
+  play.labels.forEach((label, k) => {
+    ctx.fillStyle = play.colors[k]; ctx.fillRect(10 + k * 110, 562, 14, 14);
+    ctx.fillStyle = "#e6e6e6"; ctx.fillText(label, 30 + k * 110, 570);
+  });
+  const flag = idx === play.moments.shot.idx ? "SHOT" : play.moments.rim && idx === play.moments.rim.idx ? "RIM ARRIVAL" : "";
+  ctx.textAlign = "right"; ctx.fillStyle = "#facc15"; ctx.font = "bold 18px system-ui";
+  ctx.fillText(flag, 1024, 570);
+  $("shotClock").textContent = `shot clock ${f.shot_clock ?? "-"}`;
+}
+
+// ---------- predictions ----------
+// Shared message when a moment has no usable prediction, else null
+function unavailable(moment) {
+  const pr = moment?.prediction;
+  if (!moment) return "No rim-arrival moment detected for this play.";
+  if (!pr) return "No model selected yet.";
+  return pr.error ?? null;
+}
+
+function verdict(pr) {
+  const hit = pr.label === play.rebound_type;
+  return `<b>${pr.label}</b> · P(offensive) = ${(pr.prob * 100).toFixed(1)}%
+    <span class="badge" style="margin-left:6px; background:${hit ? "#4ade8022" : "#f8717122"};
+      color:${hit ? "#6ee7a0" : "#fca5a5"}">${hit ? "Correct" : "Wrong"}</span>`;
+}
+
+function renderPrediction(el, title, moment) {
+  const msg = unavailable(moment), pr = moment?.prediction;
+  el.innerHTML = `<h2>${title}</h2>` + (msg ? `<span class="muted">${msg}</span>` :
+    `<div>Prediction: ${verdict(pr)}</div>
+     <div class="bar"><div style="width:${pr.prob * 100}%"></div><i style="left:${pr.threshold * 100}%"></i></div>
+     <div class="muted">${pr.model} · threshold ${pr.threshold}</div>`);
+}
+
+// "DIST_TO_RIM" -> "Dist to rim"
+const prettyName = f => f.charAt(0) + f.slice(1).toLowerCase().replace(/_/g, " ");
+
+function renderShap(el, title, moment) {
+  const msg = unavailable(moment), pr = moment?.prediction;
+  let html = `<h2>${title}</h2>`;
+  if (msg) html += `<span class="muted">${msg}</span>`;
+  else {
+    html += `<div class="summary"><span class="muted">${pr.model}</span>${verdict(pr)}</div>`;
+    if (pr.shap) {
+      const max = Math.max(...pr.shap.map(s => Math.abs(s[2])));
+      const OFF = "#e8833a", DEF = "#3b82f6";
+      html += `<div class="shap">
+        <span class="muted" style="font-size:11px">FEATURE · VALUE</span>
+        <div class="axis"><span style="color:${DEF}">← toward defensive</span><span style="color:${OFF}">toward offensive →</span></div>
+        <span class="muted" style="font-size:11px; text-align:right">SHAP</span>
+        ${pr.shap.map(([name, val, v]) => {
+          const w = 50 * Math.abs(v) / max, pos = v >= 0, c = pos ? OFF : DEF;
+          return `<div class="feat">${prettyName(name)}<span>${val}</span></div>
+            <div class="track"><div style="left:${pos ? 50 : 50 - w}%; width:${w}%; background:${c};
+              border-radius:${pos ? "0 4px 4px 0" : "4px 0 0 4px"}" title="${v.toFixed(3)} log-odds"></div></div>
+            <span class="num" style="color:${c}">${pos ? "+" : "−"}${Math.abs(v).toFixed(2)}</span>`;
+        }).join("")}</div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+</script>
+</body>
+</html>

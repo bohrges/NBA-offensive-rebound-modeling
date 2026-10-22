@@ -1,0 +1,14 @@
+data/events
+data/json
+data/concat
+data/rebounds
+data/og_dataset
+data/player/original
+data/sequences
+data/times/detected
+runs/
+.vscode
+models/
+# Sandbox models bundle
+!sandbox/models/
+__pycache__/

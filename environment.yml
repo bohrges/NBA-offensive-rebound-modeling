@@ -1,0 +1,34 @@
+name: dissertation
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - numpy==2.2.5
+      - pandas==2.3.3
+      - scipy==1.15.3
+      - pyarrow==25.0.1
+      - matplotlib==3.10.8
+      - scikit-learn==1.7.2
+      - xgboost==3.2.0
+      - lightgbm==4.6.0
+      - optuna==4.8.0
+      - optuna-integration==4.8.0
+      - mlflow==3.16.1
+      - shap==0.49.1
+      - shapely==2.1.2
+      - tqdm==4.67.3
+      - joblib==1.5.3
+      - cloudpickle==3.1.2
+      - torch==2.11.0
+      - tensorflow==2.21.0
+      - keras==3.12.1
+      - flask==3.1.3
+      - jupyter==1.1.1
+      - notebook==7.5.5
+      - ipykernel==7.2.0
+      - ipywidgets==8.1.7
+      - py7zr==1.1.4
+variables:
+  MLFLOW_ALLOW_FILE_STORE: "true"
